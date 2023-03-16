@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Include the Highlight.js library -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/8.0/styles/googlecode.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/8.0/highlight.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <script>
+        // Initialize the speech synthesis object
+        var synthesis = window.speechSynthesis;
+        document.addEventListener('DOMContentLoaded', (event) => {
+            hljs.initHighlightingOnLoad();
+        });
+        function replaceImageURLs(text) {
+            let regex = /(https?:\/\/[^\s]+)/g;
+            let imageCard = '<div class="card"><div class="card-image"><img alt="" src="$1"></div></div>';
+            return text.replace(regex, imageCard);
+        }
+      
+        function cleanHide(){
+            $("#htmlDiv").hide();
+            $("#codeDiv").hide();
+            $("#textDiv").hide();
+            $("#imageDiv").hide();
+            $("#html-result").html('');
+            $("#code-result pre code").html('');
+            $("#text-result").html('');
+            $("#image-result").html(''); 
+        }
+
+      
+        $(document).ready(function() {
+            $("#loading").hide();
+            $("#outFeed").hide();
+            apiKey = localStorage.getItem("apiKey"); // Check if API key is present in localStorage
+            apiKeyValid = /^sk-[A-Za-z0-9]+$/i.test(apiKey);
+            if(!apiKeyValid){
+              do {
+                  apiKey = window.prompt("Please enter your API key from beta.openai.com:","");
+                  apiKeyValid = /^sk-[A-Za-z0-9]+$/i.test(apiKey);
+              } while (!apiKeyValid);
+              localStorage.setItem("apiKey",apiKey)
+            }
+
+        var textOut = '';
+        var textIn = '';
+
+        const textArea = document.querySelector('textarea');
+        textArea.addEventListener('keydown', function(event) {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            document.getElementById('submit').click();
+          }
+        });
+
+        const toggleBtn = document.querySelector('.sliding-form-toggle');
+        const formWrapper = document.querySelector('.sliding-form-wrapper');
+
+        toggleBtn.addEventListener('click', function() {
+          formWrapper.classList.toggle('open');
+        });
+
+        function showDiv(divId) {
+              var element = document.querySelector('#' + divId);
+              if (element) {
+                element.style.display = 'block';
+                element.setAttribute('class', 'selectedDiv');
+              }else {
+                console.error('Element with ID "' + divId + '" not found.');
+              }
+        }
+
+        const loadingGif = document.getElementById('loading-gif');
+        const staticImage = document.getElementById('static-image');
+
+
+        const recognition = new webkitSpeechRecognition(); // Create a new instance of the Web Speech API
+        recognition.continuous = true; // Set continuous speech recognition
+        recognition.interimResults = true; // Enable interim results
+        recognition.lang = 'en-US'; // Set the language to English-US, you can change this to other languages
+
+
+        $("#enableMicrophone").on('click', function() {
+            if(!/^sk-[A-Za-z0-9]+$/i.test(apiKey)) apiKey = window.prompt("Please enter your API key from beta.openai.com:","");
+            else recognition.start();
+        });
+        recognition.onstart = function() {
+          loadingGif.style.display = 'block';
+          staticImage.style.display = 'none';
+        }
+        recognition.onend = function() {
+            // Trigger the submit button
+            loadingGif.style.display = 'none';
+            staticImage.style.display = 'block';
+            document.getElementById("submit").click();
+        }
+
+        recognition.addEventListener('result', event => {
+          const transcript = Array.from(event.results)
+            .map(result => result[0])
+            .map(result => result.transcript)
+            .join('');
+
+          if(transcript.toLowerCase().includes('use output to create image')){
+            $("#imageRender").attr("checked",true)
+            $("#outputFeedImageGen").attr("checked",true)
+          }
+          else if(transcript.toLowerCase().includes('generate image')){
+            $("#imageRender").attr("checked",true)
+          }
+          // Insert the speech recognition result to the prompt input
+          textIn = transcript.replace('generate image','').replace('use output to create image', '');
+          document.getElementById('prompt').value = textIn;
+		  	  // Set a timeout to stop recognition after 5 seconds
+          setTimeout(() => {
+            recognition.stop();
+          }, 5000);
+			});
+        
+        recognition.addEventListener('error', event => {
+          console.error(`Speech recognition error occurred: ${event.error}`);
+        });
+
+            $('#openBtn').on('click', function() {
+                var contents = $('#html-result').html();
+                $('#modalContents').html(contents);
+                $('#htmlModal').modal('open');
+           });
+
+            $("#imageRender").on('click', function() {
+                if($("#imageRender").prop("checked")){
+                    $("#outFeed").show(); 
+                }else{
+                    $("#outFeed").hide();
+                }
+            });
+          $("#submit").click(function() {
+            $("#loading").show();
+            cleanHide();
+            $("input[type=checkbox]").prop("disabled", true);
+            $("#submit").prop("disabled", true);
+            let prompt = $("#prompt").val();
+            let requestData = {
+              "model": "text-davinci-003",
+              "prompt": prompt,
+              "temperature": 0.7,
+              "max_tokens": 2500,
+              "top_p": 1,
+              "frequency_penalty": 0,
+              "presence_penalty": 0,
+            };
+        
+            $.ajax({
+              url: "https://api.openai.com/v1/completions",
+              type: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + apiKey
+              },
+              data: JSON.stringify(requestData),
+              success: function(response) {
+                $("input[type=checkbox]").prop("disabled", false);
+                $("#submit").prop("disabled", false);
+                isHtml = false; isPlainText=false;
+                if (response.choices[0].text.match(/^<!DOCTYPE html>|<html>/i)) {
+                    // response.choices[0].text is HTML content
+                    isHtml=true;
+                }
+                else {
+                    // response.choices[0].text is plain text output
+                    isPlainText=true;
+                }
+                if ($("#htmlRender").prop("checked") && isHtml) {
+                    $("#html-result").html('');
+                    var iframe = document.createElement("iframe");
+                    iframe.style.width = "100%";
+                    iframe.style.height = "100%";
+                    document.getElementById("html-result").appendChild(iframe);
+                    iframe.contentWindow.document.write(response.choices[0].text);
+                    showDiv('htmlDiv');
+                }
+                if (isPlainText) {
+                  textOut = response.choices[0].text;
+                  $("#text-result").html(replaceImageURLs(textOut));
+                  showDiv('textDiv');
+                  // Speak the transcript out loud
+                  if(response.choices[0].text.match(/(https?:\/\/[^\s]+)/g)){
+                    textOut = 'Here is your result';
+                  }else{
+                    var utterance = new SpeechSynthesisUtterance(textOut);
+                    utterance.addEventListener('start', () => {
+                        loadingGif.style.display = 'block';
+                        staticImage.style.display = 'none';
+                    });
+
+                    utterance.addEventListener('end', () => {
+                        loadingGif.style.display = 'none';
+                        staticImage.style.display = 'block';
+                    });
+                    synthesis.speak(utterance);
+                  }
+
+                } 
+                if ($("#codeRender").prop("checked") && isHtml) {
+                  $("#code-result pre code").text(response.choices[0].text);
+                  hljs.highlightBlock($("#code-result code")[0]);
+                  showDiv('codeDiv');
+                }
+                else if ($("#imageRender").prop("checked") && isPlainText){
+                    var prompter = $("#outputFeedImageGen").prop("checked")?response.choices[0].text:prompt;
+                    generateImage(prompter,apiKey);
+                    showDiv('imageDiv');
+                }
+                isHtml=false;isPlainText=false;
+                $("#loading").hide();
+              }
+            });
+          });
+        });
+
+        function generateImage(prompt,apiKey) {
+            $("#loading").show();
+            $.ajax({
+            url: "https://api.openai.com/v1/images/generations",
+            type: "POST",
+            headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer "+apiKey
+            },
+            data: JSON.stringify({
+            "model": "image-alpha-001",
+            "prompt": prompt,
+            "num_images":1,
+            "size":"512x512",
+            "response_format":"url"
+            }),
+            success: function(response) {
+             image_url = response.data[0].url;
+             let imageCard = '<div class="card"><div class="card-image"><img alt="" src="'+image_url+'"></div></div>'
+             $("#image-result").html(imageCard);
+             console.log(image_url);
+             $("#loading").hide();
+            }
+        });
+        }
+
+    </script>
+      
+</head>
+<body>
+    <div id="loading">
+        <img src="loading.gif" alt="Loading">
+    </div>
+      
+    <div class="container">
+        <div class="row chatload-wrapper">
+          <img id="loading-gif" src="ios_9.gif" alt="GIF image">
+          <img id="static-image" src="static.png" alt="Static image">
+        </div>
+        <div class="row" style="text-align: center;">
+          <button id="enableMicrophone">
+            <img  class="mic-image" src="microphone.png" alt="mic image">
+          </button>
+        </div>
+        <div class="row">
+          <textarea id="prompt" style="color:white;font-size: 16px; width:100%" rows="5" placeholder="What you want me to do?"></textarea>
+        </div>
+        <div class="sliding-form-toggle">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="44" viewBox="0 0 24 24">
+            <rect fill="none" x="0" y="0" width="18" height="44"/>
+            <text fill="#fff" transform="rotate(270 15 15)" x="15" y="15" font-size="16" font-weight="bold" text-anchor="middle">MENU</text>
+          </svg>
+        </div>
+        <div class="sliding-form-wrapper">
+          <form class="col s12">
+            <div class="row">
+              <div class="col s12 ">
+                <p>
+                  <label>
+                    <input type="checkbox" id="htmlRender" checked/>
+                    <span>Show HTML UI</span>
+                  </label>
+                </p>
+                <p>
+                  <label>
+                    <input type="checkbox" id="codeRender" checked/>
+                    <span>Show Formatted Code</span>
+                  </label>
+                </p>
+                <p>
+                  <label>
+                    <input type="checkbox" id="imageRender"/>
+                    <span>Generate Image</span>
+                  </label>
+                </p>
+              </div>
+            </div>
+            <div class="row">
+              <div class="col s12">
+                <span id="outFeed" class="col">
+                    <label>
+                      <input type="checkbox" id="outputFeedImageGen"/>
+                      <span>Use Output for Image Generation</span>
+                    </label>
+                </span>
+                <button id="submit" style="visibility: hidden;" class="btn waves-effect waves-light">Submit</button>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="row">
+          <div class="col s12 m6" id="htmlDiv">
+            <div id="html-result"></div>
+            <button class="btn-small" id="openBtn">
+                <i class="material-icons">Open Full Screen</i>
+            </button>
+          </div>
+          <div class="col s12 m6" id="codeDiv">
+            <div id="code-result">
+                <pre style="white-space: pre-wrap;">
+                    <code class="html" style="white-space: pre-wrap;">
+                    </code>
+                </pre>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+            <div class="col s12 m6" id="textDiv">
+              <div id="text-result"></div>
+            </div>
+            <div class="col s12 m6" id="imageDiv">
+              <div id="image-result"></div>
+            </div>
+        </div>
+    </div> 
+    <!-- Modal Structure -->
+    <div id="htmlModal" class="modal">
+        <div class="modal-content">
+            <div id="modalContents"></div>
+        </div>
+    </div>
+    <style>
+        .materialize-textarea {
+          margin-top: 2vh;
+          border: 1px solid grey;
+          height: 15vh !important;
+        }
+        body {
+            background-color: black;
+            color: white;
+            font-size: 24px;
+        }
+        #htmlDiv,#textDiv,#imageDiv{
+            height:auto;
+            display: none;
+            text-align: center;
+        }
+        #codeDiv{
+          height:auto;
+          display: none;
+          background-color: azure;
+        }
+        .selectedDiv {
+          display: block;
+          width: 100%;
+        }
+        .container{
+          width: 80%;
+          margin: 0 auto;
+          max-width: 150vw;
+        }
+        #html-result {
+            height: 50vh;
+        }
+        @media screen and (max-width: 600px) {
+            iframe {
+                width: 80%;
+                height: 40vh;
+                background-color: azure;
+            }
+        }
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: black;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        img{
+            width: 80%;
+            height: 80%; 
+        }
+
+        #loading img {
+            width: 100px;
+            height: 100px;
+        }
+
+        .chatload-wrapper {
+          position: relative;
+          width:100%;
+          height: 35vh;
+        }
+        
+        .chatload-wrapper img {
+          position: absolute;
+          width:100%;
+          top: 0;
+          left: 0;
+          z-index: 1;
+        }
+
+        textarea{
+          text-align: center;
+          border: 0;
+
+        }
+
+        .sliding-form-wrapper {
+          position: fixed;
+          top: 0;
+          right: -220px; /* Start the div off the page */
+          width: 220px;
+          height: 100%;
+          background-color: black;
+          opacity: 0.8;
+          margin:20px;
+          z-index: 999;
+          transition: all 0.3s ease-in-out; /* Add a smooth transition effect */
+        }
+
+        .sliding-form-wrapper.open {
+          right: 0; /* Slide the div into view */
+        }
+
+        .sliding-form-toggle {
+          position: fixed;
+          top: 50%;
+          right: 0;
+          transform: translateY(-50%);
+          z-index: 1000;
+          cursor: pointer;
+          background-color: blueviolet;
+        }
+
+        #enableMicrophone{
+          margin-top: -60px;
+          background-color: black;
+          border: none;
+          cursor: pointer;
+        }
+        #enableMicrophone:hover{
+          zoom: 1.1;
+        }
+        .mic-image{
+          width:40px;
+          background-color: black;
+          height: auto;
+        }
+
+    </style> 
+</body>
+</html>
